@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Marketeam - Médiaposte - Sélection Multi-Zones</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.css' type='text/css' />
+    <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css" rel="stylesheet">
+    <link href="/RepWeb/Mediaposte/css/mediaposte-variables.css" rel="stylesheet">
+    <link href="/RepWeb/Mediaposte/css/mediaposte-icons.css" rel="stylesheet">
+    <link href="/RepWeb/Mediaposte/css/mediaposte-styles.css" rel="stylesheet">
+</head>
+<body>
+    <div id="map-container">
+        <div id="map"></div>
+        
+        <!-- Barre du haut avec sélecteur de type -->
+        <div id="top-bar" class="top-bar">
+            <!-- Sélecteur de type de zone -->
+            <div id="zone-type-selector" class="zone-selector">
+                <label for="zone-type">Type de zone</label>
+                <select id="zone-type" onchange="handleZoneTypeChange(event)">
+                    <option value="mediaposte">Mediaposte (USL)</option>
+                    <option value="iris">IRIS</option>
+                    <option value="commune">Communes</option>
+                    <option value="code_postal">Codes Postaux</option>
+                    <option value="departement">Départements</option>
+                </select>
+            </div>
+            
+            <!-- Bouton Import -->
+            <button id="import-button" class="top-bar-btn" onclick="openImportPopup(); return false;" data-tooltip="Importer une liste">
+                <span class="icon-container icon-20 icon-popup-import"></span>
+                <span class="btn-text">Importer</span>
+            </button>
+            
+            <!-- Bouton Rechercher (comme Zecible V2) -->
+            <button id="search-button" class="top-bar-btn" onclick="if(window.openSearchPopup) openSearchPopup(); return false;" data-tooltip="Rechercher">
+                <span class="icon-container icon-20 icon-popup-search" id="search-icon"></span>
+                <span class="btn-text">Rechercher</span>
+                <span class="icon-container icon-20 icon-search-loader" id="search-loader" style="display:none;"></span>
+            </button>
+            
+            <!-- Bouton Validation déplacé dans un conteneur dédié -->
+            
+            <!-- Switch Afficher les libellés -->
+            <div id="labels-control" class="labels-control">
+                <label class="switch-label">
+                    <span class="switch">
+                        <input type="checkbox" id="labels-switch" onchange="handleLabelsSwitchChange(event)">
+                        <span class="switch-slider"></span>
+                    </span>
+                    <span>Libellés</span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- Barre d'outils latérale -->
+        <div id="toolbar" class="toolbar">
+            <div class="toolbar-group">
+                <button class="tool-btn" onclick="activateTool('circle'); return false;" data-tooltip="Outil Cercle (C)" data-tool="circle">
+                    <div class="icon-wrapper">
+                        <div class="icon-container icon-30 icon-tool-cercle"></div>
+                    </div>
+                </button>
+                <button class="tool-btn" onclick="activateTool('isochrone'); return false;" data-tooltip="Outil Isochrone (I)" data-tool="isochrone">
+                    <div class="icon-wrapper">
+                        <div class="icon-container icon-30 icon-tool-isochrone"></div>
+                    </div>
+                </button>
+                <button class="tool-btn" onclick="activateTool('polygon'); return false;" data-tooltip="Outil Polygone (P)" data-tool="polygon">
+                    <div class="icon-wrapper">
+                        <div class="icon-container icon-30 icon-tool-polygone"></div>
+                    </div>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Boutons d'action (GAUCHE) -->
+        <div id="action-buttons" class="action-buttons">
+            <button type="button" id="reset-btn" class="action-btn-float" onclick="if(window.resetSelection) resetSelection(); return false;" data-tooltip="Réinitialiser la sélection">
+                <div class="icon-wrapper">
+                    <div class="icon-container icon-30 icon-tool-reset"></div>
+                </div>
+            </button>
+            <button type="button" id="address-btn" class="action-btn-float" onclick="if(window.openAddressPopup) openAddressPopup(); return false;" data-tooltip="Modifier l'adresse">
+                <div class="icon-wrapper">
+                    <div class="icon-container icon-30 icon-tool-adresse"></div>
+                </div>
+            </button>
+        </div>
+
+        <!-- Boutons de recentrage (DROITE) -->
+        <div id="recenter-buttons" class="recenter-buttons">
+            <button type="button" id="recenter-store-btn" class="action-btn-float hidden" onclick="if(window.recenterOnStore) recenterOnStore(); return false;" data-tooltip="Recentrer sur le point de vente">
+                <div class="icon-wrapper">
+                    <div class="icon-container icon-30 icon-recenter-store"></div>
+                </div>
+            </button>
+            <button type="button" id="recenter-selection-btn" class="action-btn-float hidden" onclick="if(window.recenterOnSelection) recenterOnSelection(); return false;" data-tooltip="Recentrer sur la sélection">
+                <div class="icon-wrapper">
+                    <div class="icon-container icon-30 icon-recenter-selection"></div>
+                </div>
+            </button>
+        </div>
+
+        <!-- Conteneur Validation (centre bas) -->
+        <div id="validate-container" class="validate-container hidden">
+            <button id="validate-selection-btn" class="action-btn-float" onclick="if(window.validateTempSelection) validateTempSelection(); return false;">
+                <span class="icon-container icon-16 icon-coche-white"></span>
+                <span class="btn-text">Valider la sélection</span>
+            </button>
+        </div>
+        
+        <!-- Popup Import -->
+        <div id="popup-import" class="popup">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-import')">
+                <h3 class="popup-title">
+                    <span class="icon-container icon-20 icon-popup-import"></span>
+                    Importer une liste
+                </h3>
+                <button class="popup-close" onclick="closePopup('import'); return false;">
+                    <span class="icon-container icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="import-tabs">
+                    <button class="import-tab active" onclick="switchImportTab('codes')">Codes</button>
+                    <button class="import-tab" onclick="switchImportTab('file')">Fichier</button>
+                </div>
+                
+                <div id="import-codes" class="import-content active">
+                    <div class="import-info">
+                        <span class="icon-16 icon-ampoule"></span>
+                        Collez vos codes un par ligne. Le format dépend du type de zone sélectionné.
+                    </div>
+                    <textarea id="import-codes-text" class="import-textarea" 
+                        placeholder="Collez vos codes ici, un par ligne"></textarea>
+                    <div id="import-stats" class="import-stats" style="display: none;">
+                        <strong id="import-count">0</strong> codes détectés
+                    </div>
+                </div>
+                
+                <div id="import-file" class="import-content">
+                    <div class="import-info">
+                        <span class="icon-16 icon-ampoule"></span>
+                        Importez un fichier CSV ou TXT contenant une colonne de codes.
+                    </div>
+                    <input type="file" id="import-file-input" accept=".csv,.txt" onchange="handleFileSelect(event)">
+                    <div id="file-preview"></div>
+                </div>
+            </div>
+
+            <!-- Sélecteur de mode d'import (calqué Zecible) -->
+            <div class="import-mode-selector">
+                <div class="import-mode-option">
+                    <input type="radio" id="import-mode-new" name="import-mode" value="new">
+                    <label for="import-mode-new">
+                        <span class="mode-icon"><span class="icon-container icon-20 icon-mode-new"></span></span>
+                        <span class="mode-text">Créer une nouvelle sélection</span>
+                    </label>
+                </div>
+                <div class="import-mode-option">
+                    <input type="radio" id="import-mode-add" name="import-mode" value="add" checked>
+                    <label for="import-mode-add">
+                        <span class="mode-icon"><span class="icon-container icon-20 icon-mode-add"></span></span>
+                        <span class="mode-text">Ajouter à la sélection</span>
+                    </label>
+                </div>
+                <div class="import-mode-option">
+                    <input type="radio" id="import-mode-remove" name="import-mode" value="remove">
+                    <label for="import-mode-remove">
+                        <span class="mode-icon"><span class="icon-container icon-20 icon-mode-remove"></span></span>
+                        <span class="mode-text">Retirer de la sélection</span>
+                    </label>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" onclick="closePopup('import'); return false;">Annuler</button>
+                <button class="popup-btn popup-btn-primary" onclick="processImport(); return false;">✓ Importer</button>
+            </div>
+        </div>
+        
+        <!-- Popup confirmation changement de type de zone -->
+        <div id="popup-zone-type-confirm" class="popup" style="display:none;">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-zone-type-confirm')">
+                <h3 class="popup-title">
+                    <span class="icon-container icon-20 icon-mode-new"></span>
+                    Changer de type de zone
+                </h3>
+                <button class="popup-close" onclick="closeZoneTypeConfirmPopup(); return false;">
+                    <span class="icon-container icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="import-info" id="zone-type-confirm-message">
+                    Ce changement va vider la sélection en cours. Continuer ?
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" onclick="cancelZoneTypeChange(); return false;">Annuler</button>
+                <button class="popup-btn popup-btn-primary" onclick="confirmZoneTypeChange(); return false;">✓ Continuer</button>
+            </div>
+        </div>
+
+        <!-- Popup Cercle -->
+        <div id="popup-circle" class="popup">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-circle')">
+                <h3 class="popup-title">
+                    <span class="icon-container icon-20 icon-tool-cercle"></span>
+                    Sélection par cercle
+                </h3>
+                <button class="popup-close" onclick="closePopup('circle'); return false;">
+                    <span class="icon-container icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="range-control">
+                    <label>Rayon du cercle :</label>
+                    <div class="time-control">
+                        <div class="time-buttons">
+                            <button type="button" class="zoom-btn" onclick="decrementCircleRadius(); return false;">
+                                <span class="icon-container icon-30 icon-zoom-moins"></span>
+                            </button>
+                            <button type="button" class="zoom-btn" onclick="incrementCircleRadius(); return false;">
+                                <span class="icon-container icon-30 icon-zoom-plus"></span>
+                            </button>
+                        </div>
+                        <div class="range-value" id="circle-radius-display">1.5 km</div>
+                    </div>
+                    <input type="hidden" id="circle-radius" value="1.5">
+                </div>
+                <div class="estimation-box" id="circle-estimation" style="display: none;">
+                    Estimation : <strong id="circle-estimation-value">0 zones</strong>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" onclick="closePopup('circle'); return false;">Annuler</button>
+                <button class="popup-btn popup-btn-primary" onclick="validateCircleSelection(); return false;">✓ Valider</button>
+            </div>
+        </div>
+        
+        <!-- Popup Isochrone -->
+        <div id="popup-isochrone" class="popup">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-isochrone')">
+                <h3 class="popup-title">
+                    <span class="icon-container icon-20 icon-tool-isochrone"></span>
+                    Sélection par isochrone
+                </h3>
+                <button class="popup-close" onclick="closePopup('isochrone'); return false;">
+                    <span class="icon-container icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="transport-mode-section">
+                    <label class="section-label">Mode de transport :</label>
+                    <div class="transport-mode-selector">
+                        <div class="transport-mode-option">
+                            <input type="radio" id="transport-walking" name="transport-mode" value="walking" onchange="updateIsochronePreview()">
+                            <label for="transport-walking">
+                                <span class="icon-container icon-20 icon-pieton"></span>
+                                Marche à pied
+                            </label>
+                        </div>
+                        <div class="transport-mode-option">
+                            <input type="radio" id="transport-driving" name="transport-mode" value="driving" checked onchange="updateIsochronePreview()">
+                            <label for="transport-driving">
+                                <span class="icon-container icon-20 icon-voiture"></span>
+                                Voiture
+                            </label>
+                        </div>
+                        <div class="transport-mode-option">
+                            <input type="radio" id="transport-cycling" name="transport-mode" value="cycling" onchange="updateIsochronePreview()">
+                            <label for="transport-cycling">
+                                <span class="icon-container icon-20 icon-velo"></span>
+                                Vélo
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="range-control">
+                    <label>Temps de trajet :</label>
+                    <div class="time-control">
+                        <div class="time-buttons">
+                            <button class="zoom-btn" onclick="decrementIsochroneTime(); return false;">
+                                <span class="icon-container icon-30 icon-zoom-moins"></span>
+                            </button>
+                            <button class="zoom-btn" onclick="incrementIsochroneTime(); return false;">
+                                <span class="icon-container icon-30 icon-zoom-plus"></span>
+                            </button>
+                        </div>
+                        <div class="range-value" id="time-display">10 minutes</div>
+                    </div>
+                    <input type="hidden" id="time-range" value="10">
+                </div>
+                <div class="estimation-box" id="isochrone-estimation" style="display: none;">
+                    Estimation : <strong id="isochrone-estimation-value">0 zones</strong>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" onclick="closePopup('isochrone'); return false;">Annuler</button>
+                <button class="popup-btn popup-btn-primary" onclick="validateIsochroneSelection(); return false;">
+                    <span class="icon-container icon-16 icon-coche-white"></span>
+                    Valider la sélection
+                </button>
+            </div>
+        </div>
+        
+        <!-- Popup Polygone -->
+        <div id="popup-polygon" class="popup">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-polygon')">
+                <h3 class="popup-title">
+                    <span class="icon-container icon-20 icon-tool-polygone"></span>
+                    Sélection par polygone
+                </h3>
+                <button class="popup-close" onclick="closePopup('polygon'); return false;">
+                    <span class="icon-container icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="polygon-hint">
+                    💡 Cliquez sur la carte pour placer les points. Fermez en cliquant sur le premier point.
+                </div>
+                <div class="estimation-box" id="polygon-estimation" style="display: none;">
+                    Estimation : <strong id="polygon-estimation-value">0 zones</strong>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" onclick="clearPolygon(); return false;">Effacer</button>
+                <button class="popup-btn popup-btn-primary" onclick="validatePolygonSelection(); return false;">✓ Valider</button>
+            </div>
+        </div>
+        
+        <!-- Popup Recherche -->
+        <div id="popup-search" class="popup">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-search')">
+                <h3 class="popup-title">
+                    <span class="icon-20 icon-popup-search"></span>
+                    <span id="search-popup-title-text">Rechercher des codes postaux</span>
+                </h3>
+                <button class="popup-close" onclick="closeSearchPopup(); return false;">
+                    <span class="icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="search-memory-section">
+                    <div class="search-memory-title">Zones sélectionnées :</div>
+                    <div id="search-memory-list">
+                        <div class="search-memory-empty">Aucune zone sélectionnée</div>
+                    </div>
+                </div>
+                <div class="search-input-container">
+                    <div class="search-input-wrapper">
+                        <button id="search-clear-btn" class="search-clear-button" onclick="clearSearch(); return false;" type="button" style="display: none;">
+                            <span class="icon-20 icon-search-clear"></span>
+                        </button>
+                        <input type="text" 
+                               id="search-input" 
+                               placeholder="Rechercher par code postal ou ville..." 
+                               oninput="handleSearchInput(event)">
+                        <button class="search-icon-button" onclick="forceSearch(); return false;" type="button">
+                            <span class="icon-20 icon-popup-search"></span>
+                        </button>
+                    </div>
+                    <div id="search-dropdown"></div>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" type="button" onclick="closeSearchPopup(); return false;">
+                    Annuler
+                </button>
+                <button class="popup-btn popup-btn-primary" type="button" onclick="validateSearch(); return false;">
+                    <span class="icon-16 icon-coche"></span>
+                    Valider
+                </button>
+            </div>
+        </div>
+        
+        <!-- Compteur de sélection -->
+        <div id="selection-counter" class="selection-counter">
+            <div class="counter-main">
+                <span class="counter-value" id="selection-count">0</span>
+                <span id="selection-label">zones sélectionnées</span>
+            </div>
+            <div id="foyers-info" class="counter-secondary" style="display: none;">
+                <span class="separator">•</span>
+                <span id="foyers-count">0</span>
+                <span>foyers</span>
+            </div>
+        </div>
+        
+        <div id="status-message" class="status-message"></div>
+        <div id="loading-spinner" class="loading-spinner"></div>
+        
+        <!-- Popup Adresse -->
+        <div id="popup-address" class="popup">
+            <div class="popup-header" onmousedown="if(!window.isAddressRequired()) startDrag(event, 'popup-address')">
+                <h3 class="popup-title">
+                    <span class="icon-20 icon-tool-adresse"></span>
+                    Adresse du point de vente
+                </h3>
+                <button type="button" class="popup-close" id="address-popup-close" onclick="closeAddressPopup(); return false;" style="display: none;">
+                    <span class="icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="address-info">
+                    <span class="icon-16 icon-ampoule"></span>
+                    Recherchez et sélectionnez l'adresse de votre point de vente
+                </div>
+                
+                <!-- Conteneur pour le geocoder Mapbox -->
+                <div id="popup-geocoder-container" class="popup-geocoder-container"></div>
+                
+                <!-- Affichage de l'adresse sélectionnée -->
+                <div id="selected-address-display" class="selected-address" style="display: none;">
+                    <strong>Adresse sélectionnée :</strong>
+                    <p id="selected-address-text"></p>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" id="address-cancel-btn" type="button" onclick="cancelAddressChange(); return false;" style="display: none;">
+                    Annuler
+                </button>
+                <button class="popup-btn popup-btn-primary" id="address-validate-btn" type="button" onclick="validateAddress(); return false;" disabled>
+                    <span class="icon-16 icon-coche"></span>
+                    Valider l'adresse
+                </button>
+            </div>
+        </div>
+        
+        <!-- Popup Confirmation Reset -->
+        <div id="popup-reset-confirm" class="popup">
+            <div class="popup-header" onmousedown="startDrag(event, 'popup-reset-confirm')">
+                <h3 class="popup-title">
+                    <span class="icon-container icon-20 icon-tool-reset"></span>
+                    Confirmer la réinitialisation
+                </h3>
+                <button class="popup-close" onclick="closePopup('reset-confirm'); return false;">
+                    <span class="icon-container icon-16 icon-croix"></span>
+                </button>
+            </div>
+            <div class="popup-content">
+                <div class="reset-confirm-message">
+                    <p><strong>Êtes-vous sûr de vouloir réinitialiser la sélection ?</strong></p>
+                    <p class="reset-warning">Cette action effacera toutes les zones sélectionnées.</p>
+                </div>
+            </div>
+            <div class="popup-footer">
+                <button class="popup-btn popup-btn-secondary" type="button" onclick="closePopup('reset-confirm'); return false;">
+                    Annuler
+                </button>
+                <button class="popup-btn popup-btn-primary" type="button" onclick="if(window.confirmReset) confirmReset(); return false;">
+                    <span class="icon-container icon-16 icon-coche-white"></span>
+                    Confirmer
+                </button>
+            </div>
+        </div>
+        
+        <!-- Barre du bas -->
+        <div id="bottom-bar">
+            <!-- Indicateur de mode sélection (texte raccourci) -->
+            <div class="selection-mode-indicator">
+                Sélection • Shift+drag : ajouter • Ctrl+drag : retirer
+            </div>
+            
+            <!-- Conteneur zoom (boutons + indicateur groupés) -->
+            <div id="zoom-container">
+                <!-- Contrôles de zoom -->
+                <div id="zoom-controls">
+                    <button class="zoom-btn" onclick="if(window.incrementZoom) incrementZoom(-0.25); return false;">
+                        <div class="icon-wrapper">
+                            <div class="icon-container icon-30 icon-zoom-moins"></div>
+                        </div>
+                    </button>
+                    <button class="zoom-btn" onclick="if(window.incrementZoom) incrementZoom(0.25); return false;">
+                        <div class="icon-wrapper">
+                            <div class="icon-container icon-30 icon-zoom-plus"></div>
+                        </div>
+                    </button>
+                </div>
+                
+                <!-- Indicateur de zoom -->
+                <div id="zoom-indicator">Zoom: <span id="zoom-level">12.00</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js'></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    
+    <script src="/RepWeb/Mediaposte/js/mediaposte-utils.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-geocoder.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-geocoding.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-save-load-functions.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-config.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-ui-manager.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-address-manager.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-map-manager.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-zones-loader.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-selection-manager.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-selection-tools.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-conversion-engine.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-import-manager.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-search-manager.js"></script>
+    <script src="/RepWeb/Mediaposte/js/mediaposte-main.js"></script>
+    
+    <script>
+        // Fonction globale pour l'initialisation manuelle
+        window.InitialiserDepuisWebDev = function() {
+            console.log("=== InitialiserDepuisWebDev appelée ===");
+            var lat = 48.878646;
+            var lng = 2.413234;
+            var adresse = "5 rue des Bruyères, 93260 Les Lilas, France";
+            
+            if (typeof window.InitialiserCarte === 'function') {
+                console.log("Appel de InitialiserCarte avec:", lat, lng, adresse);
+                window.InitialiserCarte(lat, lng, adresse);
+            } else {
+                console.error("InitialiserCarte pas encore disponible, réessai dans 1s");
+                setTimeout(function() {
+                    window.InitialiserDepuisWebDev();
+                }, 1000);
+            }
+        };
+    </script>
+</body>
+</html>

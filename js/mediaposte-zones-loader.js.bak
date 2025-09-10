@@ -1,0 +1,281 @@
+// Chargement des zones Tract V2
+async function loadZonesForCurrentView(forceUpdate = false) {
+    if (!APP.map || GLOBAL_STATE.isLoading || !hasValidAddress()) {
+        return;
+    }
+    
+    const mapBounds = APP.map.getBounds();
+    const currentBounds = {
+        lat_min: mapBounds.getSouth(),
+        lat_max: mapBounds.getNorth(),
+        lng_min: mapBounds.getWest(),
+        lng_max: mapBounds.getEast()
+    };
+    
+    const currentZoom = APP.map.getZoom();
+    const minZoom = CONFIG.ZONE_LIMITS[GLOBAL_STATE.currentZoneType].MIN_ZOOM_DISPLAY;
+    
+    if (currentZoom < minZoom) {
+        const zoneLabel = getCurrentZoneConfig().label;
+        showStatus(`Zoomez pour voir les ${zoneLabel} (zoom min: ${minZoom})`, 'warning');
+        return;
+    }
+    
+    if (shouldLoadUSLInBackground()) {
+        loadUSLInBackground(currentBounds);
+    }
+    
+    if (isBoundsAlreadyLoaded(currentBounds) && !forceUpdate) {
+        updateMapWithAllCachedZones();
+        return;
+    }
+    
+    GLOBAL_STATE.isLoading = true;
+    const zoneConfig = getCurrentZoneConfig();
+    showStatus(`Chargement des ${zoneConfig.label}...`, 'warning');
+    
+    try {
+        let url, response;
+        
+        if (isInUSLMode()) {
+            url = '/api/zones/rectangle';
+            const excludeIds = Array.from(GLOBAL_STATE.uslCache.keys());
+            
+            response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lat_min: currentBounds.lat_min,
+                    lat_max: currentBounds.lat_max,
+                    lng_min: currentBounds.lng_min,
+                    lng_max: currentBounds.lng_max,
+                    exclude_ids: excludeIds
+                })
+            });
+        } else {
+            url = '/api/france/rectangle';
+            
+            response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lat_min: currentBounds.lat_min,
+                    lat_max: currentBounds.lat_max,
+                    lng_min: currentBounds.lng_min,
+                    lng_max: currentBounds.lng_max,
+                    type_zone: GLOBAL_STATE.currentZoneType
+                })
+            });
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.data) {
+            await processLoadedZones(data, currentBounds);
+        } else {
+            showStatus('Aucune zone trouvée', 'warning');
+        }
+        
+    } catch (error) {
+        console.error('Erreur chargement zones:', error);
+        showStatus('Erreur de chargement', 'error');
+    } finally {
+        GLOBAL_STATE.isLoading = false;
+    }
+}
+
+async function processLoadedZones(data, currentBounds) {
+    const isUSL = isInUSLMode();
+    const targetCache = isUSL ? GLOBAL_STATE.uslCache : GLOBAL_STATE.currentZonesCache;
+    
+    if (data.data.zones && data.data.zones.length > 0) {
+        const validZones = data.data.zones.filter(zone => validateZoneGeometry(zone));
+        
+        validZones.forEach(zone => {
+            targetCache.set(zone.code || zone.id, {
+                id: zone.code || zone.id,
+                code: zone.code || zone.id,
+                geometry: zone.geometry,
+                nom: zone.nom || zone.libelle || '',
+                foyers: zone.foyers || 0,
+                type: GLOBAL_STATE.currentZoneType
+            });
+        });
+    }
+    
+    if (data.data.zones_superieur && data.data.zones_superieur.length > 0) {
+        const validSuperior = data.data.zones_superieur.filter(zone => validateZoneGeometry(zone));
+        
+        validSuperior.forEach(zone => {
+            GLOBAL_STATE.superiorZonesCache.set(zone.code, {
+                code: zone.code,
+                geometry: zone.geometry,
+                type: 'superior'
+            });
+        });
+    }
+    
+    GLOBAL_STATE.loadedBounds.push({
+        ...currentBounds,
+        type: GLOBAL_STATE.currentZoneType
+    });
+    
+    updateMapWithAllCachedZones();
+    
+    if (GLOBAL_STATE.currentTool !== 'manual') {
+        updatePrecountAfterZoneLoad();
+    }
+    
+    const zoneCount = data.data.nb_zones || validZones.length;
+    const superiorCount = data.data.nb_zones_superieur || 0;
+    showStatus(`${zoneCount} zones chargées${superiorCount > 0 ? ` (+${superiorCount} contexte)` : ''}`, 'success');
+}
+
+async function loadZonesByCodes(codes, onProgress = null) {
+    if (!codes || codes.length === 0) {
+        showStatus('Aucun code à charger', 'error');
+        return;
+    }
+    
+    GLOBAL_STATE.isLoading = true;
+    const results = { success: [], notFound: [] };
+    
+    showStatus(`Import de ${codes.length} codes...`, 'warning');
+    
+    try {
+        let url, response;
+        
+        if (isInUSLMode()) {
+            // USL direct
+            const batches = [];
+            for (let i = 0; i < codes.length; i += 100) {
+                batches.push(codes.slice(i, i + 100));
+            }
+            
+            for (let i = 0; i < batches.length; i++) {
+                // Implémenter si endpoint disponible
+            }
+        } else {
+            // Zones non-USL
+            url = '/api/france/zones/codes';
+            
+            response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type_zone: GLOBAL_STATE.currentZoneType,
+                    codes: codes
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                data.data.zones.forEach(zone => {
+                    GLOBAL_STATE.currentZonesCache.set(zone.code, {
+                        id: zone.code,
+                        code: zone.code,
+                        geometry: zone.geometry,
+                        nom: zone.nom || zone.libelle || '',
+                        type: GLOBAL_STATE.currentZoneType
+                    });
+                    
+                    GLOBAL_STATE.tempSelection.set(zone.code, GLOBAL_STATE.currentZonesCache.get(zone.code));
+                    results.success.push(zone.code);
+                });
+                
+                if (data.data.codes_non_trouves) {
+                    results.notFound = data.data.codes_non_trouves;
+                }
+            }
+        }
+        
+        updateMapWithAllCachedZones();
+        updateSelectionDisplay();
+        updateValidateButton();
+        
+        if (onProgress) {
+            onProgress(100, results.success.length, codes.length);
+        }
+        
+    } catch (error) {
+        console.error('Erreur import:', error);
+        showStatus('Erreur lors de l\'import', 'error');
+    } finally {
+        GLOBAL_STATE.isLoading = false;
+    }
+    
+    return results;
+}
+
+function clearCacheForTypeChange() {
+    GLOBAL_STATE.currentZonesCache.clear();
+    GLOBAL_STATE.superiorZonesCache.clear();
+    GLOBAL_STATE.loadedBounds = GLOBAL_STATE.loadedBounds.filter(b => b.type === 'mediaposte');
+    clearConversionState();
+    
+    if (APP.map) {
+        ['zones-france', 'zones-france-superior'].forEach(sourceId => {
+            if (APP.map.getSource(sourceId)) {
+                APP.map.getSource(sourceId).setData({
+                    type: 'FeatureCollection',
+                    features: []
+                });
+            }
+        });
+    }
+    
+    updateSelectionDisplay();
+    updateValidateButton();
+}
+
+function validateZoneGeometry(zone) {
+    try {
+        if (!zone.geometry || !zone.geometry.coordinates || !zone.geometry.type) return false;
+        
+        const coords = zone.geometry.coordinates;
+        if (!Array.isArray(coords) || coords.length === 0) return false;
+        
+        // Validation spécifique selon le type de géométrie
+        if (zone.geometry.type === 'Polygon') {
+            if (!coords[0] || coords[0].length < 4) return false;
+            
+            // Vérifier que toutes les coordonnées sont des nombres valides
+            for (const ring of coords) {
+                if (!Array.isArray(ring)) return false;
+                for (const coord of ring) {
+                    if (!Array.isArray(coord) || coord.length < 2) return false;
+                    if (typeof coord[0] !== 'number' || typeof coord[1] !== 'number') return false;
+                    if (isNaN(coord[0]) || isNaN(coord[1])) return false;
+                    if (coord[0] === null || coord[1] === null) return false;
+                }
+            }
+        } else if (zone.geometry.type === 'MultiPolygon') {
+            if (!Array.isArray(coords[0]) || !Array.isArray(coords[0][0])) return false;
+            
+            // Vérifier récursivement les MultiPolygons
+            for (const polygon of coords) {
+                for (const ring of polygon) {
+                    if (!Array.isArray(ring)) return false;
+                    for (const coord of ring) {
+                        if (!Array.isArray(coord) || coord.length < 2) return false;
+                        if (typeof coord[0] !== 'number' || typeof coord[1] !== 'number') return false;
+                        if (isNaN(coord[0]) || isNaN(coord[1])) return false;
+                        if (coord[0] === null || coord[1] === null) return false;
+                    }
+                }
+            }
+        }
+        
+        return true;
+    } catch (e) {
+        console.warn('Erreur validation géométrie:', e);
+        return false;
+    }
+}
+
+
+window.loadZonesForCurrentView = loadZonesForCurrentView;
+window.loadZonesByCodes = loadZonesByCodes;
+window.clearCacheForTypeChange = clearCacheForTypeChange;
+window.validateZoneGeometry = validateZoneGeometry;
