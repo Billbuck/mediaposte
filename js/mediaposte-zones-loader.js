@@ -780,7 +780,8 @@ function shouldLoadZones(forceReload) {
     
 
     
-    if (currentZoom < minZoom) {
+    // Ignorer la limite de zoom si on est en train de charger une étude
+    if (currentZoom < minZoom && !GLOBAL_STATE.isLoadingStudy) {
         const zoneLabel = getCurrentZoneConfig().label;
         showStatus(`Zoomez pour voir les ${zoneLabel} (zoom min: ${minZoom})`, 'warning');
         return false;

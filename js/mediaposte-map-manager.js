@@ -668,11 +668,11 @@ function createUSLLayers() {
                 'interpolate',
                 ['linear'],
                 ['zoom'],
-                9, 0.9,       // zoom 9 → opacité 0.9 (opaque)
-                15, 0.3     // zoom 15 → opacité 0.3 (plus transparent)
+                9, 0.5,       // zoom 9 → opacité 0.9 (opaque)
+                15, 0.2     // zoom 15 → opacité 0.3 (plus transparent)
             ],
             'fill-outline-color': CONFIG.COLORS.SELECTED_ZONE,  // Même couleur pour éviter les bordures
-            'fill-antialias': true  // Antialiasing activé
+            'fill-antialias': false  // Antialiasing activé
         },
         filter: ['in', 'id', '']
     });

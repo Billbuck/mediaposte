@@ -62,7 +62,7 @@ const CONFIG = {
     
     ZONE_LIMITS: {
         mediaposte: {
-            MIN_ZOOM_DISPLAY: 9,
+            MIN_ZOOM_DISPLAY: 8.5,
             DEFAULT_ZOOM_ON_CHANGE: 13,
             AFTER_IMPORT_ZOOM: 15,
             MAX_ZONES_PER_REQUEST: 2000

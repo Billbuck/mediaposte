@@ -252,20 +252,35 @@ function InitialiserCarte(jsonData) {
             // Créer le marqueur
             createStoreMarker(GLOBAL_STATE.storeLocation, store.adresse);
             
-            // Centrer la carte
-            APP.map.flyTo({
-                center: GLOBAL_STATE.storeLocation,
-                zoom: 14
-            });
-            
-            // Charger les zones
-            setTimeout(function() {
-                loadZonesForCurrentView(true);
-            }, 500);
-            
-            // CAS 3 : JSON complet avec sélection USL
+            // CAS 3 : JSON complet avec sélection USL et bounds
             if (studyData.selection && studyData.selection.tabUsl && studyData.selection.tabUsl.length > 0) {
                 console.log('[InitialiserCarte] CAS 3 - JSON complet - chargement des USL');
+                
+                // Si on a les bounds, on laisse loadStudy gérer le positionnement pour éviter le va-et-vient
+                if (studyData.selection.bounds) {
+                    console.log('[InitialiserCarte] Bounds détectées, pré-positionnement proche de la zone');
+                    // Calculer le centre des bounds pour un pré-positionnement plus proche
+                    const bounds = studyData.selection.bounds;
+                    const centerLng = (bounds.lng_min + bounds.lng_max) / 2;
+                    const centerLat = (bounds.lat_min + bounds.lat_max) / 2;
+                    
+                    // Pré-positionner avec un zoom légèrement plus large que la cible finale
+                    APP.map.jumpTo({
+                        center: [centerLng, centerLat],
+                        zoom: 7  // Zoom initial plus large pour une meilleure transition
+                    });
+                } else {
+                    // Pas de bounds, ancien comportement
+                    APP.map.flyTo({
+                        center: GLOBAL_STATE.storeLocation,
+                        zoom: 14
+                    });
+                    
+                    // Charger les zones
+                    setTimeout(function() {
+                        loadZonesForCurrentView(true);
+                    }, 500);
+                }
                 
                 // Utiliser la fonction loadStudy qui gère correctement le chargement
                 setTimeout(async function() {
@@ -281,11 +296,23 @@ function InitialiserCarte(jsonData) {
                         console.error('[InitialiserCarte] Erreur chargement étude:', error);
                         showStatus('Erreur lors du chargement de l\'étude', 'error');
                     }
-                }, 2000);
+                }, studyData.selection.bounds ? 500 : 2000); // Délai plus court si on a les bounds
                 
             } else {
                 // CAS 2 : Adresse seule
                 console.log('[InitialiserCarte] CAS 2 - Adresse seule');
+                
+                // Centrer sur le point de vente
+                APP.map.flyTo({
+                    center: GLOBAL_STATE.storeLocation,
+                    zoom: 14
+                });
+                
+                // Charger les zones
+                setTimeout(function() {
+                    loadZonesForCurrentView(true);
+                }, 500);
+                
                 showStatus(`Point de vente défini : ${store.adresse}`, 'success');
                 
                 // Mettre à jour WebDev (adresse + sélection à 0)
@@ -350,6 +377,29 @@ function getStudyDataForSave() {
                         window.getStoreAddressFromWebDev() : 
                         'Adresse non disponible';
     
+    // Calculer les bounds de la sélection pour optimiser le chargement futur
+    let selectionBounds = null;
+    if (window.calculateSelectionBounds && typeof window.calculateSelectionBounds === 'function') {
+        const rawBounds = window.calculateSelectionBounds();
+        if (rawBounds) {
+            // Ajouter une marge de 15% pour garantir le chargement de toutes les zones
+            const latRange = rawBounds.lat_max - rawBounds.lat_min;
+            const lngRange = rawBounds.lng_max - rawBounds.lng_min;
+            const latMargin = latRange * 0.15;
+            const lngMargin = lngRange * 0.15;
+            
+            selectionBounds = {
+                lat_min: rawBounds.lat_min - latMargin,
+                lat_max: rawBounds.lat_max + latMargin,
+                lng_min: rawBounds.lng_min - lngMargin,
+                lng_max: rawBounds.lng_max + lngMargin
+            };
+            
+            console.log('[SAVE] Bounds de la sélection avec marge 15%:', selectionBounds);
+            console.log('[SAVE] Marge appliquée - lat:', latMargin, 'lng:', lngMargin);
+        }
+    }
+    
     const studyData = {
         store: {
             adresse: storeAddress,
@@ -358,7 +408,9 @@ function getStudyDataForSave() {
         },
         selection: {
             totalFoyers: GLOBAL_STATE.totalSelectedFoyers,
-            tabUsl: Array.from(GLOBAL_STATE.finalUSLSelection.keys())
+            tabUsl: Array.from(GLOBAL_STATE.finalUSLSelection.keys()),
+            // Ajout des bounds pour optimiser le chargement
+            bounds: selectionBounds
         }
     };
     
@@ -406,33 +458,48 @@ async function loadStudy(studyData) {
         if (hasSavedSelection) {
             console.log('[LOAD-STUDY] Étude sauvegardée détectée');
             console.log('[LOAD-STUDY] USL à charger:', studyData.selection.tabUsl.length);
-            console.log('[LOAD-STUDY] Recentrage sur sélection au lieu du point de vente');
             
-            // 6A. Charger des USL en arrière-plan autour du point de vente (zone élargie)
-            try {
-                const [lng, lat] = GLOBAL_STATE.storeLocation;
-                const latMargin = 0.25;  // ~27 km
-                const lngMargin = 0.35;  // ~25 km à cette latitude
-                const preloadBounds = {
-                    lat_min: lat - latMargin,
-                    lat_max: lat + latMargin,
-                    lng_min: lng - lngMargin,
-                    lng_max: lng + lngMargin
-                };
-                if (typeof window.loadUSLForSpecificBounds === 'function') {
-                    await window.loadUSLForSpecificBounds(preloadBounds);
-                } else if (typeof loadUSLForSpecificBounds === 'function') {
-                    await loadUSLForSpecificBounds(preloadBounds);
-                }
-            } catch (e) {
-                console.warn('[LOAD-STUDY] Préchargement USL autour du point de vente impossible:', e);
+            // Les bounds sont toujours disponibles dans les nouvelles études
+            const selectionBounds = studyData.selection.bounds;
+            console.log('[LOAD-STUDY] Chargement optimisé avec bounds de sélection:', selectionBounds);
+            
+            if (!selectionBounds) {
+                console.error('[LOAD-STUDY] ERREUR: Bounds non trouvées dans les données');
+                showStatus('Erreur: données de zone manquantes', 'error');
+                return false;
             }
             
-            // 6B. Charger les zones pour la vue courante (complément)
-            await loadZonesForCurrentView(true);
+            // 6A. Positionner la carte sur les bounds AVANT de charger les USL
+            console.log('[LOAD-STUDY] Ajustement final sur les bounds de la sélection');
+            APP.map.fitBounds([
+                [selectionBounds.lng_min, selectionBounds.lat_min],
+                [selectionBounds.lng_max, selectionBounds.lat_max]
+            ], {
+                padding: 60,
+                duration: 2000,  // Animation de 2 secondes pour plus de fluidité
+                animate: true,
+                easing: (t) => {
+                    // Easing "ease-in-out" pour une transition plus naturelle
+                    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                }
+            });
             
-            // 7A. Petite attente pour stabiliser
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Attendre la fin de l'animation de positionnement
+            await new Promise(resolve => setTimeout(resolve, 2100));
+            
+            // 6B. Charger les USL une fois la carte bien positionnée
+            // Marquer temporairement qu'on charge une étude pour ignorer la limite de zoom
+            GLOBAL_STATE.isLoadingStudy = true;
+            showStatus('Chargement des zones de l\'étude...', 'warning');
+            const loadedCount = await window.loadUSLForSpecificBounds(selectionBounds);
+            console.log('[LOAD-STUDY] USL chargées depuis les bounds de sélection:', loadedCount);
+            
+            // 6C. Forcer l'affichage des zones même si le zoom est < 9
+            updateMapWithAllCachedZones();
+            updateUSLDisplay();
+            
+            // Réinitialiser le flag
+            GLOBAL_STATE.isLoadingStudy = false;
         } else {
             // EXISTANT: Étude sans sélection, zoom sur le point de vente
             APP.map.flyTo({
@@ -457,18 +524,7 @@ async function loadStudy(studyData) {
             }
         });
         
-        // NOUVEAU: si sélection restaurée, recadrer sur l'ensemble des USL sélectionnées
-        if (hasSavedSelection && restoredCount > 0) {
-            try {
-                if (typeof window.recenterOnSelection === 'function') {
-                    window.recenterOnSelection(60);
-                } else if (typeof recenterOnSelection === 'function') {
-                    recenterOnSelection(60);
-                }
-            } catch (e) {
-                console.warn('[LOAD-STUDY] Recentrage sur sélection impossible:', e);
-            }
-        }
+        // Le recentrage a déjà été fait au début, pas besoin de le refaire
         
         // 9. Mettre à jour l'affichage
         updateSelectionDisplay();
