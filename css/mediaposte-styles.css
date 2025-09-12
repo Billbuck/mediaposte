@@ -375,7 +375,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    z-index: 999;
+    z-index: 900;
 }
 
 #recenter-buttons,
@@ -387,7 +387,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    z-index: 999;
+    z-index: 900;
 }
 
 /* Séparateur visuel */
