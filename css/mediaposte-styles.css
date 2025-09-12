@@ -51,7 +51,7 @@ body {
     display: flex;
     align-items: center;
     gap: 20px;
-    z-index: 1000;
+    z-index: 900;
 }
 
 /* === SELECTEUR DE TYPE DE ZONE === */
@@ -278,7 +278,7 @@ body {
     bottom: 70px; /* au-dessus des zooms (20px) + 50px d'espace */
     left: 50%;
     transform: translateX(-50%);
-    z-index: 1000;
+    z-index: 900;
 }
 
 /* Bouton validation aligné sur le style Importer */
@@ -322,7 +322,7 @@ body {
     flex-direction: column;
     gap: 2px;
     padding: 4px;
-    z-index: 1000;
+    z-index: 900;
 }
 
 .toolbar-group {
@@ -1384,7 +1384,7 @@ input[type="range"]::-moz-range-thumb {
     border-radius: 10px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     font-size: 14px;
-    z-index: 1000;
+    z-index: 900;
     opacity: 0;
     transform: translateY(10px);
     transition: var(--transition);
@@ -1408,7 +1408,7 @@ input[type="range"]::-moz-range-thumb {
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     font-size: 14px;
-    z-index: 1000;
+    z-index: 900;
     display: none;
 }
 
@@ -1458,7 +1458,7 @@ body #selection-counter:not(.selection-counter-bottom) {
     display: flex; /* Ajouté directement pour corriger l'alignement */
     align-items: center;
     gap: 20px;
-    z-index: 1000;
+    z-index: 900;
     pointer-events: none;
 }
 
@@ -1836,7 +1836,7 @@ textarea:focus {
     font-size: 14px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     pointer-events: none;
-    z-index: 1000;
+    z-index: 900;
     white-space: normal;
     word-wrap: break-word;
     display: none;
